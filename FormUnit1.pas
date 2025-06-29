@@ -23,9 +23,8 @@ type
   private
     FServer: TIdHTTPWebBrokerBridge;
     procedure StartServer;
-    { Private declarations }
+    procedure HandleException(Sender: TObject; E: Exception); // <--- ADICIONADO
   public
-    { Public declarations }
   end;
 
 var
@@ -39,7 +38,7 @@ uses
 {$IFDEF MSWINDOWS}
   WinApi.Windows, Winapi.ShellApi,
 {$ENDIF}
-  System.Generics.Collections;
+  System.Generics.Collections, IdException; // <--- Importante para EIdConnClosedGracefully
 
 procedure TForm1.ApplicationEvents1Idle(Sender: TObject; var Done: Boolean);
 begin
@@ -57,9 +56,7 @@ begin
   StartServer;
 {$IFDEF MSWINDOWS}
   LURL := Format('http://localhost:%s', [EditPort.Text]);
-  ShellExecute(0,
-        nil,
-        PChar(LURL), nil, nil, SW_SHOWNOACTIVATE);
+  ShellExecute(0, nil, PChar(LURL), nil, nil, SW_SHOWNOACTIVATE);
 {$ENDIF}
 end;
 
@@ -77,6 +74,7 @@ end;
 procedure TForm1.FormCreate(Sender: TObject);
 begin
   FServer := TIdHTTPWebBrokerBridge.Create(Self);
+  Application.OnException := HandleException; // <--- ADICIONADO
 end;
 
 procedure TForm1.StartServer;
@@ -87,6 +85,13 @@ begin
     FServer.DefaultPort := StrToInt(EditPort.Text);
     FServer.Active := True;
   end;
+end;
+
+procedure TForm1.HandleException(Sender: TObject; E: Exception);
+begin
+  if not (E is EIdConnClosedGracefully) then
+    ShowMessage('Erro: ' + E.ClassName + ' - ' + E.Message);
+  // Se quiser ignorar silenciosamente, tire o ShowMessage
 end;
 
 end.
