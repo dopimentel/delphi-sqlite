@@ -10,8 +10,6 @@ object WebModule1: TWebModule1
   Width = 519
   PixelsPerInch = 120
   object FDConnection1: TFDConnection
-    Params.Strings = (
-      'DriverID=:= SQLite')
     Left = 296
     Top = 72
   end
@@ -21,7 +19,7 @@ object WebModule1: TWebModule1
     Top = 88
   end
   object FDPhysSQLiteDriverLink1: TFDPhysSQLiteDriverLink
-    Left = 336
+    Left = 320
     Top = 200
   end
 end

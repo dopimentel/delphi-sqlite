@@ -1,4 +1,4 @@
-unit WebModuleUnit1;
+﻿unit WebModuleUnit1;
 
 interface
 
@@ -10,7 +10,7 @@ uses
   FireDAC.Comp.Client, FireDAC.Stan.Def, FireDAC.Stan.Pool,
   FireDAC.Phys, FireDAC.Phys.SQLite, FireDAC.Phys.SQLiteDef, FireDAC.UI.Intf,
   FireDAC.VCLUI.Wait, FireDAC.ConsoleUI.Wait, FireDAC.Stan.ExprFuncs,
-  FireDAC.Phys.SQLiteWrapper.Stat;
+  FireDAC.Phys.SQLiteWrapper.Stat, FireDAC.Phys.SQLiteWrapper;
 
 type
   TWebModule1 = class(TWebModule)
@@ -37,19 +37,56 @@ implementation
 {$R *.dfm}
 
 procedure TWebModule1.InitDatabase;
+var
+  dbPath: string;
 begin
-  FDConnection1.Params.DriverID := 'SQLite';
-  FDConnection1.Params.Database := ExtractFilePath(ParamStr(0)) + 'banco.db';
-  FDConnection1.Connected := True;
+  try
+    // Garantir que a conexão esteja fechada
+    FDConnection1.Connected := False;
+    
+    // Limpar e reconfigurar os parâmetros
+    FDConnection1.Params.Clear;
+    
+    // Configurar o caminho do banco dinamicamente
+    dbPath := ExtractFilePath(ParamStr(0)) + 'banco.db';
+    
+    FDConnection1.Params.Add('DriverID=SQLite');
+    FDConnection1.Params.Add('Database=' + dbPath);
+    FDConnection1.Params.Add('LockingMode=Normal');
+    
+    // Conectar
+    FDConnection1.Connected := True;
 
-  FDConnection1.ExecSQL(
-    'CREATE TABLE IF NOT EXISTS pessoas (' +
-    'numero INTEGER PRIMARY KEY, nome TEXT)'
-  );
+    // Criar as tabelas se não existirem
+    FDConnection1.ExecSQL(
+      'CREATE TABLE IF NOT EXISTS pessoas (' +
+      'numero INTEGER PRIMARY KEY, nome TEXT)'
+    );
+
+    FDConnection1.ExecSQL(
+      'CREATE TABLE IF NOT EXISTS Cadastros (' +
+      'Numero INTEGER PRIMARY KEY, Nome TEXT)'
+    );
+    
+    // Verificar se as tabelas foram criadas
+    FDQuery1.Close;
+    FDQuery1.SQL.Text := 'SELECT name FROM sqlite_master WHERE type="table"';
+    FDQuery1.Open;
+    
+  except
+    on E: Exception do
+    begin
+      // Log do erro para debug
+      raise Exception.Create('Erro ao inicializar banco: ' + E.Message);
+    end;
+  end;
 end;
 
 procedure TWebModule1.WebModuleCreate(Sender: TObject);
 begin
+  // Forçar o carregamento do driver SQLite
+  FDPhysSQLiteDriverLink1.Release;
+  
   InitDatabase;
 end;
 
@@ -94,14 +131,30 @@ var
   numeroStr, nome: string;
   numero: Integer;
 begin
-  // Agora l� do corpo da requisi��o POST (form-data)
+  // Verificar se a conexão está ativa
+  if not FDConnection1.Connected then
+  begin
+    try
+      InitDatabase;
+    except
+      on E: Exception do
+      begin
+        Response.StatusCode := 500;
+        Response.Content := '{"status":"erro","mensagem":"Erro de conexão: ' + E.Message + '"}';
+        Response.ContentType := 'application/json';
+        Exit;
+      end;
+    end;
+  end;
+
+  // Agora lê do corpo da requisição POST (form-data)
   numeroStr := Request.ContentFields.Values['numero'];
   nome := Request.ContentFields.Values['nome'];
 
   if (numeroStr = '') or (nome = '') or (not TryStrToInt(numeroStr, numero)) then
   begin
     Response.StatusCode := 400; // Bad Request
-    Response.Content := 'Par�metros inv�lidos. Use formul�rio POST com campos "numero" e "nome".';
+    Response.Content := 'Parâmetros inválidos. Use formulário POST com campos "numero" e "nome".';
     Exit;
   end;
 
@@ -128,12 +181,29 @@ var
   numero: Integer;
   nome: string;
   resultado: TStringList;
+  primeiroItem: Boolean;
 begin
+  // Verificar se a conexão está ativa
+  if not FDConnection1.Connected then
+  begin
+    try
+      InitDatabase;
+    except
+      on E: Exception do
+      begin
+        Response.StatusCode := 500;
+        Response.Content := '{"status":"erro","mensagem":"Erro de conexão: ' + E.Message + '"}';
+        Response.ContentType := 'application/json';
+        Exit;
+      end;
+    end;
+  end;
+
   numerosStr := Request.QueryFields.Values['numeros'];
   if numerosStr = '' then
   begin
     Response.StatusCode := 400;
-    Response.Content := '{"status":"erro","mensagem":"Par�metro numeros � obrigat�rio"}';
+    Response.Content := '{"status":"erro","mensagem":"Parâmetro numeros é obrigatório"}';
     Response.ContentType := 'application/json';
     Exit;
   end;
@@ -141,33 +211,51 @@ begin
   resultado := TStringList.Create;
   try
     resultado.Add('{"resultados": [');
-
+    
     lista := numerosStr.Split([',']);
+    primeiroItem := True;
 
     for i := 0 to High(lista) do
     begin
       if TryStrToInt(Trim(lista[i]), numero) then
       begin
-        FDQuery1.Close;
-        FDQuery1.SQL.Text := 'SELECT nome FROM pessoas WHERE numero = ?';
-        FDQuery1.Params[0].AsInteger := numero;
-        FDQuery1.Open;
+        try
+          FDQuery1.Close;
+          FDQuery1.SQL.Text := 'SELECT nome FROM pessoas WHERE numero = :numero';
+          FDQuery1.ParamByName('numero').AsInteger := numero;
+          FDQuery1.Open;
 
-        if not FDQuery1.Eof then
-          nome := FDQuery1.FieldByName('nome').AsString
-        else
-          nome := '[n�o encontrado]';
+          if not FDQuery1.Eof then
+            nome := FDQuery1.FieldByName('nome').AsString
+          else
+            nome := '[não encontrado]';
 
-        resultado.Add(Format('{"numero": %d, "nome": "%s"}',
-          [numero, nome.Replace('"', '\"')]));
-
-        if i < High(lista) then
-          resultado.Add(',');
+          if not primeiroItem then
+            resultado.Add(',');
+            
+          resultado.Add(Format('{"numero": %d, "nome": "%s"}',
+            [numero, nome.Replace('"', '\"')]));
+          
+          primeiroItem := False;
+        except
+          on E: Exception do
+          begin
+            if not primeiroItem then
+              resultado.Add(',');
+            resultado.Add(Format('{"numero": %d, "nome": "erro: %s"}',
+              [numero, E.Message.Replace('"', '\"')]));
+            primeiroItem := False;
+          end;
+        end;
       end;
     end;
+    
     resultado.Add(']}');
+    
     Response.ContentType := 'application/json';
-    Response.Content := resultado.Text;
+    Response.StatusCode := 200;
+    Response.Content := resultado.Text.Replace(#13#10, '').Replace(#13, '').Replace(#10, '');
+    
   finally
     resultado.Free;
   end;
