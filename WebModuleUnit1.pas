@@ -104,7 +104,7 @@ begin
     else
     begin
       Response.StatusCode := 405; // Method Not Allowed
-      Response.Content := 'M�todo n�o permitido para /cadastro. Use POST.';
+      Response.Content := 'Método não permitido para /cadastro. Use POST.';
     end;
   end
   else if path.StartsWith('/pesquisa') then
@@ -114,9 +114,69 @@ begin
     else
     begin
       Response.StatusCode := 405;
-      Response.Content := 'M�todo n�o permitido para /pesquisa. Use GET.';
+      Response.Content := 'Método não permitido para /pesquisa. Use GET.';
     end;
   end
+
+  else if path.StartsWith('/') then
+  begin
+  Response.Content :=
+    '<html>' +
+    '<head>' +
+    '<title>Desafio Delphi</title>' +
+    '<meta charset="UTF-8">' +
+    '<style>' +
+    '  body { font-family: Arial, sans-serif; margin: 40px; background-color: #f5f5f5; }' +
+    '  .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }' +
+    '  h1 { color: #333; text-align: center; margin-bottom: 30px; }' +
+    '  .form-section { margin-bottom: 40px; padding: 20px; border: 1px solid #ddd; border-radius: 8px; }' +
+    '  .form-section h2 { color: #555; margin-top: 0; }' +
+    '  .form-group { margin-bottom: 15px; }' +
+    '  label { display: block; margin-bottom: 5px; font-weight: bold; color: #666; }' +
+    '  input[type="number"], input[type="text"] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }' +
+    '  button { background-color: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; margin-right: 10px; }' +
+    '  button:hover { background-color: #0056b3; }' +
+    '  .result { margin-top: 20px; padding: 15px; border-radius: 4px; }' +
+    '  .success { background-color: #d4edda; border: 1px solid #c3e6cb; color: #155724; }' +
+    '  .error { background-color: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; }' +
+    '</style>' +
+    '</head>' +
+    '<body>' +
+    '<div class="container">' +
+    '  <h1>Sistema de Cadastro de Pessoas</h1>' +
+    '  ' +
+    '  <!-- Formulário de Cadastro -->' +
+    '  <div class="form-section">' +
+    '    <h2>Cadastrar Pessoa</h2>' +
+    '    <form action="/cadastro" method="post" enctype="application/x-www-form-urlencoded">' +
+    '      <div class="form-group">' +
+    '        <label for="numero">Número:</label>' +
+    '        <input type="number" id="numero" name="numero" value="1" required>' +
+    '      </div>' +
+    '      <div class="form-group">' +
+    '        <label for="nome">Nome:</label>' +
+    '        <input type="text" id="nome" name="nome" value="João Silva" required>' +
+    '      </div>' +
+    '      <button type="submit">Cadastrar</button>' +
+    '    </form>' +
+    '  </div>' +
+    '  ' +
+    '  <!-- Formulário de Pesquisa -->' +
+    '  <div class="form-section">' +
+    '    <h2>Pesquisar Pessoas</h2>' +
+    '    <form action="/pesquisa" method="get">' +
+    '      <div class="form-group">' +
+    '        <label for="numeros">Números (separados por vírgula):</label>' +
+    '        <input type="text" id="numeros" name="numeros" placeholder="Ex: 1,2,3" value="1,123" required>' +
+    '      </div>' +
+    '      <button type="submit">Pesquisar</button>' +
+    '    </form>' +
+    '  </div>' +
+    '</div>' +
+    '</body>' +
+    '</html>';
+  end
+
   else
   begin
     Response.StatusCode := 404;
@@ -130,7 +190,19 @@ procedure TWebModule1.HandleCadastro(Request: TWebRequest; Response: TWebRespons
 var
   numeroStr, nome: string;
   numero: Integer;
+  debugInfo: string;
+  content: string;
+  pairs: TArray<string>;
+  pair: string;
+  keyValue: TArray<string>;
+  key, value: string;
 begin
+  // Debug: informações da requisição
+  debugInfo := 'Method: ' + Request.Method + #13#10 +
+               'ContentType: ' + Request.ContentType + #13#10 +
+               'Content: ' + Request.Content + #13#10 +
+               'ContentLength: ' + IntToStr(Request.ContentLength) + #13#10;
+
   // Verificar se a conexão está ativa
   if not FDConnection1.Connected then
   begin
@@ -147,28 +219,119 @@ begin
     end;
   end;
 
-  // Agora lê do corpo da requisição POST (form-data)
-  numeroStr := Request.ContentFields.Values['numero'];
-  nome := Request.ContentFields.Values['nome'];
+  // Capturar dados do formulário POST
+  try
+    // Método 1: Tentar ContentFields primeiro
+    numeroStr := Request.ContentFields.Values['numero'];
+    nome := Request.ContentFields.Values['nome'];
+    
+    // Método 2: Se não funcionar, tentar QueryFields (para debug)
+    if (numeroStr = '') and (nome = '') then
+    begin
+      numeroStr := Request.QueryFields.Values['numero'];
+      nome := Request.QueryFields.Values['nome'];
+    end;
+    
+    // Método 3: Parse manual do Content para form-data
+    if (numeroStr = '') and (nome = '') and (Request.Content <> '') then
+    begin
+      content := Request.Content;
+      pairs := content.Split(['&']);
+      for pair in pairs do
+      begin
+        keyValue := pair.Split(['=']);
+        if Length(keyValue) = 2 then
+        begin
+          key := keyValue[0];
+          value := keyValue[1];
+          // Decodificar URL encoding se necessário
+          value := StringReplace(value, '+', ' ', [rfReplaceAll]);
+          if key = 'numero' then
+            numeroStr := value
+          else if key = 'nome' then
+            nome := value;
+        end;
+      end;
+    end;
+    
+    debugInfo := debugInfo + 'numeroStr: ' + numeroStr + #13#10 + 'nome: ' + nome + #13#10;
+    
+  except
+    on E: Exception do
+    begin
+      debugInfo := debugInfo + 'Erro ao capturar dados: ' + E.Message + #13#10;
+    end;
+  end;
 
   if (numeroStr = '') or (nome = '') or (not TryStrToInt(numeroStr, numero)) then
   begin
     Response.StatusCode := 400; // Bad Request
-    Response.Content := 'Parâmetros inválidos. Use formulário POST com campos "numero" e "nome".';
+    if Request.GetFieldByName('Accept').Contains('text/html') then
+    begin
+      Response.ContentType := 'text/html';
+      Response.Content := 
+        '<html><head><title>Dados Inválidos</title>' +
+        '<meta charset="UTF-8">' +
+        '<style>body{font-family:Arial,sans-serif;margin:40px;text-align:center;}</style>' +
+        '</head><body>' +
+        '<h2 style="color:red;">Dados inválidos!</h2>' +
+        '<p>Por favor, preencha corretamente o número (deve ser um número inteiro) e o nome.</p>' +
+        '<details><summary>Debug Info</summary><pre>' + debugInfo + '</pre></details>' +
+        '<a href="/" style="text-decoration:none;background:#007bff;color:white;padding:10px 20px;border-radius:4px;">Voltar</a>' +
+        '</body></html>';
+    end
+    else
+    begin
+      Response.Content := 'Parâmetros inválidos. Debug: ' + debugInfo;
+    end;
     Exit;
   end;
 
   try
     FDConnection1.ExecSQL('INSERT OR REPLACE INTO pessoas(numero, nome) VALUES(?, ?)',
       [numero, nome]);
-    Response.Content := '{"status":"sucesso","mensagem":"Cadastro realizado com sucesso"}';
-    Response.ContentType := 'application/json';
+    
+    // Verificar se é uma requisição via navegador (Accept header)
+    if Request.GetFieldByName('Accept').Contains('text/html') then
+    begin
+      Response.ContentType := 'text/html';
+      Response.Content := 
+        '<html><head><title>Cadastro Realizado</title>' +
+        '<meta charset="UTF-8">' +
+        '<style>body{font-family:Arial,sans-serif;margin:40px;text-align:center;}</style>' +
+        '</head><body>' +
+        '<h2 style="color:green;">Cadastro realizado com sucesso!</h2>' +
+        '<p>Pessoa <strong>' + nome + '</strong> (número ' + IntToStr(numero) + ') foi cadastrada.</p>' +
+        '<a href="/" style="text-decoration:none;background:#007bff;color:white;padding:10px 20px;border-radius:4px;">Voltar</a>' +
+        '</body></html>';
+    end
+    else
+    begin
+      Response.Content := '{"status":"sucesso","mensagem":"Cadastro realizado com sucesso"}';
+      Response.ContentType := 'application/json';
+    end;
   except
     on E: Exception do
     begin
       Response.StatusCode := 500; // Internal Server Error
-      Response.Content := '{"status":"erro","mensagem":"' + E.Message + '"}';
-      Response.ContentType := 'application/json';
+      if Request.GetFieldByName('Accept').Contains('text/html') then
+      begin
+        Response.ContentType := 'text/html';
+        Response.Content := 
+          '<html><head><title>Erro no Cadastro</title>' +
+          '<meta charset="UTF-8">' +
+          '<style>body{font-family:Arial,sans-serif;margin:40px;text-align:center;}</style>' +
+          '</head><body>' +
+          '<h2 style="color:red;">Erro no cadastro!</h2>' +
+          '<p>' + E.Message + '</p>' +
+          '<a href="/" style="text-decoration:none;background:#007bff;color:white;padding:10px 20px;border-radius:4px;">Voltar</a>' +
+          '</body></html>';
+      end
+      else
+      begin
+        Response.Content := '{"status":"erro","mensagem":"' + E.Message + '"}';
+        Response.ContentType := 'application/json';
+      end;
     end;
   end;
 end;
@@ -203,58 +366,134 @@ begin
   if numerosStr = '' then
   begin
     Response.StatusCode := 400;
-    Response.Content := '{"status":"erro","mensagem":"Parâmetro numeros é obrigatório"}';
-    Response.ContentType := 'application/json';
+    if Request.GetFieldByName('Accept').Contains('text/html') then
+    begin
+      Response.ContentType := 'text/html';
+      Response.Content := 
+        '<html><head><title>Parâmetro Obrigatório</title>' +
+        '<meta charset="UTF-8">' +
+        '<style>body{font-family:Arial,sans-serif;margin:40px;text-align:center;}</style>' +
+        '</head><body>' +
+        '<h2 style="color:red;">Parâmetro obrigatório!</h2>' +
+        '<p>Por favor, informe os números que deseja pesquisar.</p>' +
+        '<a href="/" style="text-decoration:none;background:#007bff;color:white;padding:10px 20px;border-radius:4px;">Voltar</a>' +
+        '</body></html>';
+    end
+    else
+    begin
+      Response.Content := '{"status":"erro","mensagem":"Parâmetro numeros é obrigatório"}';
+      Response.ContentType := 'application/json';
+    end;
     Exit;
   end;
 
   resultado := TStringList.Create;
   try
-    resultado.Add('{"resultados": [');
-    
-    lista := numerosStr.Split([',']);
-    primeiroItem := True;
-
-    for i := 0 to High(lista) do
+    // Verificar se é uma requisição via navegador
+    if Request.GetFieldByName('Accept').Contains('text/html') then
     begin
-      if TryStrToInt(Trim(lista[i]), numero) then
+      // Resposta HTML
+      resultado.Add('<html><head><title>Resultado da Pesquisa</title>');
+      resultado.Add('<meta charset="UTF-8">');
+      resultado.Add('<style>');
+      resultado.Add('body{font-family:Arial,sans-serif;margin:40px;}');
+      resultado.Add('.container{max-width:800px;margin:0 auto;}');
+      resultado.Add('table{width:100%;border-collapse:collapse;margin:20px 0;}');
+      resultado.Add('th,td{padding:12px;text-align:left;border-bottom:1px solid #ddd;}');
+      resultado.Add('th{background-color:#f2f2f2;}');
+      resultado.Add('.not-found{color:#888;font-style:italic;}');
+      resultado.Add('.error{color:red;}');
+      resultado.Add('</style>');
+      resultado.Add('</head><body><div class="container">');
+      resultado.Add('<h2>Resultado da Pesquisa</h2>');
+      resultado.Add('<table><thead><tr><th>Número</th><th>Nome</th></tr></thead><tbody>');
+      
+      lista := numerosStr.Split([',']);
+      for i := 0 to High(lista) do
       begin
-        try
-          FDQuery1.Close;
-          FDQuery1.SQL.Text := 'SELECT nome FROM pessoas WHERE numero = :numero';
-          FDQuery1.ParamByName('numero').AsInteger := numero;
-          FDQuery1.Open;
+        if TryStrToInt(Trim(lista[i]), numero) then
+        begin
+          try
+            FDQuery1.Close;
+            FDQuery1.SQL.Text := 'SELECT nome FROM pessoas WHERE numero = :numero';
+            FDQuery1.ParamByName('numero').AsInteger := numero;
+            FDQuery1.Open;
 
-          if not FDQuery1.Eof then
-            nome := FDQuery1.FieldByName('nome').AsString
-          else
-            nome := '[não encontrado]';
+            if not FDQuery1.Eof then
+              nome := FDQuery1.FieldByName('nome').AsString
+            else
+              nome := '[não encontrado]';
 
-          if not primeiroItem then
-            resultado.Add(',');
-            
-          resultado.Add(Format('{"numero": %d, "nome": "%s"}',
-            [numero, nome.Replace('"', '\"')]));
-          
-          primeiroItem := False;
-        except
-          on E: Exception do
-          begin
-            if not primeiroItem then
-              resultado.Add(',');
-            resultado.Add(Format('{"numero": %d, "nome": "erro: %s"}',
-              [numero, E.Message.Replace('"', '\"')]));
-            primeiroItem := False;
+            if nome = '[não encontrado]' then
+              resultado.Add(Format('<tr><td>%d</td><td class="not-found">%s</td></tr>', [numero, nome]))
+            else
+              resultado.Add(Format('<tr><td>%d</td><td>%s</td></tr>', [numero, nome]));
+              
+          except
+            on E: Exception do
+              resultado.Add(Format('<tr><td>%d</td><td class="error">Erro: %s</td></tr>', [numero, E.Message]));
           end;
         end;
       end;
+      
+      resultado.Add('</tbody></table>');
+      resultado.Add('<a href="/" style="text-decoration:none;background:#007bff;color:white;padding:10px 20px;border-radius:4px;">Voltar</a>');
+      resultado.Add('</div></body></html>');
+      
+      Response.ContentType := 'text/html';
+    end
+    else
+    begin
+      // Resposta JSON
+      resultado.Add('{"resultados": [');
+      
+      lista := numerosStr.Split([',']);
+      primeiroItem := True;
+
+      for i := 0 to High(lista) do
+      begin
+        if TryStrToInt(Trim(lista[i]), numero) then
+        begin
+          try
+            FDQuery1.Close;
+            FDQuery1.SQL.Text := 'SELECT nome FROM pessoas WHERE numero = :numero';
+            FDQuery1.ParamByName('numero').AsInteger := numero;
+            FDQuery1.Open;
+
+            if not FDQuery1.Eof then
+              nome := FDQuery1.FieldByName('nome').AsString
+            else
+              nome := '[não encontrado]';
+
+            if not primeiroItem then
+              resultado.Add(',');
+              
+            resultado.Add(Format('{"numero": %d, "nome": "%s"}',
+              [numero, nome.Replace('"', '\"')]));
+            
+            primeiroItem := False;
+          except
+            on E: Exception do
+            begin
+              if not primeiroItem then
+                resultado.Add(',');
+              resultado.Add(Format('{"numero": %d, "nome": "erro: %s"}',
+                [numero, E.Message.Replace('"', '\"')]));
+              primeiroItem := False;
+            end;
+          end;
+        end;
+      end;
+      
+      resultado.Add(']}');
+      Response.ContentType := 'application/json';
     end;
     
-    resultado.Add(']}');
-    
-    Response.ContentType := 'application/json';
     Response.StatusCode := 200;
-    Response.Content := resultado.Text.Replace(#13#10, '').Replace(#13, '').Replace(#10, '');
+    if Request.GetFieldByName('Accept').Contains('text/html') then
+      Response.Content := resultado.Text
+    else
+      Response.Content := resultado.Text.Replace(#13#10, '').Replace(#13, '').Replace(#10, '');
     
   finally
     resultado.Free;
