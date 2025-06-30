@@ -11,7 +11,7 @@ uses
   FireDAC.Phys, FireDAC.Phys.SQLite, FireDAC.Phys.SQLiteDef, FireDAC.UI.Intf,
   FireDAC.VCLUI.Wait, FireDAC.ConsoleUI.Wait, FireDAC.Stan.ExprFuncs,
   FireDAC.Phys.SQLiteWrapper.Stat, FireDAC.Phys.SQLiteWrapper,
-  IdException;
+  IdException, System.JSON, Winapi.Windows, Winapi.WinInet;
 
 type
   TWebModule1 = class(TWebModule)
@@ -24,7 +24,9 @@ type
   private
     procedure HandleCadastro(Request: TWebRequest; Response: TWebResponse);
     procedure HandlePesquisa(Request: TWebRequest; Response: TWebResponse);
+    procedure HandleCotacao(Request: TWebRequest; Response: TWebResponse);
     procedure InitDatabase;
+    function HttpGet(const URL: string): string;
   public
   end;
 
@@ -119,6 +121,16 @@ begin
         Response.Content := 'Método não permitido para /pesquisa. Use GET.';
       end;
     end
+    else if path.StartsWith('/cotacao') then
+    begin
+      if SameText(Request.Method, 'GET') then
+        HandleCotacao(Request, Response)
+      else
+      begin
+        Response.StatusCode := 405;
+        Response.Content := 'Método não permitido para /cotacao. Use GET.';
+      end;
+    end
     else if path.StartsWith('/') then
     begin
       // ...existing code...
@@ -173,6 +185,13 @@ begin
         '      </div>' +
         '      <button type="submit">Pesquisar</button>' +
         '    </form>' +
+        '  </div>' +
+        '  ' +
+        '  <!-- Cotação do Dólar -->' +
+        '  <div class="form-section">' +
+        '    <h2>Cotação do Dólar</h2>' +
+        '    <p>Consulte a cotação atual do dólar americano (USD) para real brasileiro (BRL).</p>' +
+        '    <a href="/cotacao" style="text-decoration:none;background:#28a745;color:white;padding:10px 20px;border-radius:4px;">Ver Cotação</a>' +
         '  </div>' +
         '</div>' +
         '</body>' +
@@ -567,6 +586,226 @@ begin
         // Se não conseguir responder, apenas ignore
       end;
     end;
+  end;
+end;
+
+procedure TWebModule1.HandleCotacao(Request: TWebRequest; Response: TWebResponse);
+var
+  JsonResponse: string;
+  JsonObj: TJSONObject;
+  UsdBrlObj: TJSONObject;
+  cotacao, variacao, porcentVariacao: string;
+  dataHora: string;
+  errorMsg: string;
+  variacaoClass, percentClass: string;
+begin
+  try
+    // Fazer a requisição para a API usando WinINet
+    JsonResponse := HttpGet('https://economia.awesomeapi.com.br/json/last/USD-BRL');
+    
+    // Parse do JSON
+    JsonObj := TJSONObject.ParseJSONValue(JsonResponse) as TJSONObject;
+    try
+      if Assigned(JsonObj) then
+      begin
+        UsdBrlObj := JsonObj.GetValue('USDBRL') as TJSONObject;
+        if Assigned(UsdBrlObj) then
+        begin
+          cotacao := UsdBrlObj.GetValue('bid').Value;
+          variacao := UsdBrlObj.GetValue('varBid').Value;
+          porcentVariacao := UsdBrlObj.GetValue('pctChange').Value;
+          dataHora := UsdBrlObj.GetValue('create_date').Value;
+          
+          // Determinar classes CSS para variações
+          if StrToFloatDef(variacao, 0) >= 0 then
+            variacaoClass := 'variacao-positiva'
+          else
+            variacaoClass := 'variacao-negativa';
+            
+          if StrToFloatDef(porcentVariacao, 0) >= 0 then
+            percentClass := 'variacao-positiva'
+          else
+            percentClass := 'variacao-negativa';
+          
+          // Verificar se é uma requisição via navegador
+          if Request.GetFieldByName('Accept').Contains('text/html') then
+          begin
+            Response.ContentType := 'text/html';
+            Response.Content := 
+              '<html>' +
+              '<head>' +
+              '<title>Cotação do Dólar</title>' +
+              '<meta charset="UTF-8">' +
+              '<style>' +
+              '  body { font-family: Arial, sans-serif; margin: 40px; background-color: #f5f5f5; }' +
+              '  .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }' +
+              '  h1 { color: #333; text-align: center; margin-bottom: 30px; }' +
+              '  .cotacao-card { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; border-radius: 15px; margin: 20px 0; text-align: center; }' +
+              '  .cotacao-valor { font-size: 3em; font-weight: bold; margin: 10px 0; }' +
+              '  .cotacao-detalhes { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 20px; margin: 20px 0; }' +
+              '  .detalhe-item { display: flex; justify-content: space-between; margin: 10px 0; padding: 5px 0; border-bottom: 1px solid #eee; }' +
+              '  .detalhe-label { font-weight: bold; color: #495057; }' +
+              '  .detalhe-valor { color: #28a745; font-weight: bold; }' +
+              '  .variacao-positiva { color: #28a745; }' +
+              '  .variacao-negativa { color: #dc3545; }' +
+              '  .refresh-btn { background-color: #007bff; color: white; padding: 12px 24px; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; margin: 10px 5px; text-decoration: none; display: inline-block; }' +
+              '  .refresh-btn:hover { background-color: #0056b3; }' +
+              '  .back-btn { background-color: #6c757d; color: white; padding: 12px 24px; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; margin: 10px 5px; text-decoration: none; display: inline-block; }' +
+              '  .back-btn:hover { background-color: #545b62; }' +
+              '  .timestamp { color: #6c757d; font-size: 0.9em; text-align: center; margin-top: 20px; }' +
+              '</style>' +
+              '</head>' +
+              '<body>' +
+              '<div class="container">' +
+              '  <h1>Cotação do Dólar Americano</h1>' +
+              '  ' +
+              '  <div class="cotacao-card">' +
+              '    <h2>USD -> BRL</h2>' +
+              '    <div class="cotacao-valor">R$ ' + cotacao + '</div>' +
+              '    <p>Valor de compra por 1 dólar americano</p>' +
+              '  </div>' +
+              '  ' +
+              '  <div class="cotacao-detalhes">' +
+              '    <h3>Detalhes da Cotação</h3>' +
+              '    <div class="detalhe-item">' +
+              '      <span class="detalhe-label">Cotação Atual:</span>' +
+              '      <span class="detalhe-valor">R$ ' + cotacao + '</span>' +
+              '    </div>' +
+              '    <div class="detalhe-item">' +
+              '      <span class="detalhe-label">Variação:</span>' +
+              '      <span class="' + variacaoClass + '">R$ ' + variacao + '</span>' +
+              '    </div>' +
+              '    <div class="detalhe-item">' +
+              '      <span class="detalhe-label">Variação %:</span>' +
+              '      <span class="' + percentClass + '">' + porcentVariacao + '%</span>' +
+              '    </div>' +
+              '  </div>' +
+              '  ' +
+              '  <div style="text-align: center; margin-top: 30px;">' +
+              '    <a href="/cotacao" class="refresh-btn">Atualizar Cotação</a>' +
+              '    <a href="/" class="back-btn">Voltar ao Início</a>' +
+              '  </div>' +
+              '  ' +
+              '  <div class="timestamp">' +
+              '    <small>Última atualização: ' + dataHora + '</small>' +
+              '  </div>' +
+              '</div>' +
+              '</body>' +
+              '</html>';
+          end
+          else
+          begin
+            // Resposta JSON
+            Response.ContentType := 'application/json';
+            Response.Content := Format(
+              '{"status":"sucesso","moeda":"USD-BRL","cotacao":"%s","variacao":"%s","variacao_percentual":"%s","data_hora":"%s"}',
+              [cotacao, variacao, porcentVariacao, dataHora]
+            );
+          end;
+        end
+        else
+        begin
+          errorMsg := 'Estrutura de resposta da API inválida';
+          raise Exception.Create(errorMsg);
+        end;
+      end
+      else
+      begin
+        errorMsg := 'Resposta JSON inválida da API';
+        raise Exception.Create(errorMsg);
+      end;
+    finally
+      if Assigned(JsonObj) then
+        JsonObj.Free;
+    end;
+    
+  except
+    on E: Exception do
+    begin
+      // Erro na requisição ou parsing
+      errorMsg := 'Erro ao consultar cotação: ' + E.Message;
+      
+      if Request.GetFieldByName('Accept').Contains('text/html') then
+      begin
+        Response.ContentType := 'text/html';
+        Response.Content := 
+          '<html>' +
+          '<head>' +
+          '<title>Erro na Cotação</title>' +
+          '<meta charset="UTF-8">' +
+          '<style>' +
+          '  body { font-family: Arial, sans-serif; margin: 40px; background-color: #f5f5f5; text-align: center; }' +
+          '  .container { max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }' +
+          '  .error { color: #dc3545; margin: 20px 0; }' +
+          '  .back-btn { background-color: #6c757d; color: white; padding: 12px 24px; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; margin: 10px 5px; text-decoration: none; display: inline-block; }' +
+          '  .back-btn:hover { background-color: #545b62; }' +
+          '  .retry-btn { background-color: #007bff; color: white; padding: 12px 24px; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; margin: 10px 5px; text-decoration: none; display: inline-block; }' +
+          '  .retry-btn:hover { background-color: #0056b3; }' +
+          '</style>' +
+          '</head>' +
+          '<body>' +
+          '<div class="container">' +
+          '  <h2>Erro ao Consultar Cotação</h2>' +
+          '  <div class="error">' + errorMsg + '</div>' +
+          '  <p>Não foi possível obter a cotação do dólar no momento. Tente novamente em alguns instantes.</p>' +
+          '  <a href="/cotacao" class="retry-btn">Tentar Novamente</a>' +
+          '  <a href="/" class="back-btn">Voltar ao Início</a>' +
+          '</div>' +
+          '</body>' +
+          '</html>';
+      end
+      else
+      begin
+        Response.ContentType := 'application/json';
+        Response.Content := '{"status":"erro","mensagem":"' + errorMsg.Replace('"', '\"') + '"}';
+      end;
+      
+      Response.StatusCode := 500;
+    end;
+  end;
+end;
+
+function TWebModule1.HttpGet(const URL: string): string;
+var
+  hSession, hConnect, hRequest: HINTERNET;
+  Buffer: array[0..1023] of AnsiChar;
+  BytesRead: DWORD;
+  Response: AnsiString;
+begin
+  Result := '';
+  
+  // Abrir sessão do WinINet
+  hSession := InternetOpen('DelphiApp/1.0', INTERNET_OPEN_TYPE_PRECONFIG, nil, nil, 0);
+  if not Assigned(hSession) then
+    raise Exception.Create('Falha ao abrir sessão HTTP');
+    
+  try
+    // Abrir conexão HTTP
+    hRequest := InternetOpenUrl(hSession, PChar(URL), nil, 0, 
+      INTERNET_FLAG_RELOAD or INTERNET_FLAG_NO_CACHE_WRITE, 0);
+    if not Assigned(hRequest) then
+      raise Exception.Create('Falha ao abrir URL HTTP');
+      
+    try
+      // Ler resposta
+      Response := '';
+      repeat
+        if InternetReadFile(hRequest, @Buffer, SizeOf(Buffer), BytesRead) then
+        begin
+          if BytesRead > 0 then
+            Response := Response + Copy(AnsiString(Buffer), 1, BytesRead);
+        end
+        else
+          Break;
+      until BytesRead = 0;
+      
+      Result := string(Response);
+      
+    finally
+      InternetCloseHandle(hRequest);
+    end;
+  finally
+    InternetCloseHandle(hSession);
   end;
 end;
 
